@@ -891,7 +891,6 @@ class MetricsLogger:
         self.num_layers = num_layers
         self.enabled = False
         self.mlp_rms = [None] * num_layers
-        self.attn_rms = [None] * num_layers
         self._pending_grad_norms = [None] * num_layers
 
     def mlp_hook(self, module, inputs, output):
@@ -900,17 +899,9 @@ class MetricsLogger:
         rms = output.detach().float().pow(2).mean().sqrt()
         self.mlp_rms[module.layer_idx] = rms
 
-    def attn_hook(self, module, inputs, output):
-        if not self.enabled:
-            return
-        rms = output.detach().float().pow(2).mean().sqrt()
-        self.attn_rms[module.layer_idx] = rms
-
     def attach(self, model):
         for blk in model.blocks:
             blk.mlp.register_forward_hook(self.mlp_hook)
-            if blk.attn is not None:
-                blk.attn.register_forward_hook(self.attn_hook)
 
     def stash_grad_norms(self, model):
         # all-rank participation: clone each grad, all_reduce(AVG), then per-layer L2.
@@ -947,13 +938,11 @@ class MetricsLogger:
             step=step,
             train_time_ms=train_time_ms,
             mlp_rms=to_list(self.mlp_rms),
-            attn_rms=to_list(self.attn_rms),
             grad_norm=to_list(self._pending_grad_norms),
         )
         with open(self.path, "a") as f:
             f.write(json.dumps(record) + "\n")
         self.mlp_rms = [None] * self.num_layers
-        self.attn_rms = [None] * self.num_layers
         self._pending_grad_norms = [None] * self.num_layers
 
 metrics_logger = None
