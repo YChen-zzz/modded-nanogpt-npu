@@ -1,6 +1,8 @@
+# NPU (Ascend) environment for modded-nanogpt benchmark
+torch==2.10.0
+torch_npu==2.10.0
 numpy
+tiktoken
+datasets
 tqdm
-torch
 huggingface-hub
-kernels
-setuptools
