@@ -517,8 +517,12 @@ class MLP(nn.Module):
 class Block(nn.Module):
     def __init__(self, dim: int, head_dim: int, num_heads: int, layer_idx: int):
         super().__init__()
+        self.layer_idx = layer_idx
         self.attn = CausalSelfAttention(dim, head_dim, num_heads) if layer_idx != 6 else None
+        if self.attn is not None:
+            self.attn.layer_idx = layer_idx
         self.mlp = MLP(dim)
+        self.mlp.layer_idx = layer_idx
 
     def forward(self, x: Tensor, attn_args: AttnArgs):
         if self.attn is not None:
@@ -828,6 +832,7 @@ class Hyperparameters:
     run_id: str = f"{uuid.uuid4()}"
     val_loss_every: int = 250
     save_checkpoint: bool = False
+    metrics_every: int = 50
     block_size: int = 128
     ws_schedule: tuple = (3, 7, 11)
     ws_final: int = 13
@@ -850,11 +855,26 @@ dist.barrier()
 master_process = (rank == 0)
 
 logfile = None
+run_dir = None
+metrics_file = None
 if master_process:
     run_id = args.run_id
-    os.makedirs("logs", exist_ok=True)
-    logfile = f"logs/{run_id}.txt"
-    print(logfile)
+    run_dir = f"logs/{run_id}"
+    os.makedirs(run_dir, exist_ok=True)
+    logfile = f"{run_dir}/train.log"
+    metrics_file = f"{run_dir}/metrics.jsonl"
+    src_basename = os.path.basename(sys.argv[0])
+    with open(f"{run_dir}/{src_basename}", "w") as f:
+        f.write(code)
+    with open(f"{run_dir}/command.txt", "w") as f:
+        f.write(f"cwd: {os.getcwd()}\n")
+        f.write(f"argv: {' '.join(sys.argv)}\n")
+        f.write(f"world_size: {world_size}\n")
+        for k in ("TORCHELASTIC_RUN_ID", "MASTER_ADDR", "MASTER_PORT", "DATA_PATH"):
+            v = os.environ.get(k)
+            if v is not None:
+                f.write(f"env {k}={v}\n")
+    print(run_dir)
 def print0(s, console=False):
     if master_process:
         with open(logfile, "a") as f:
@@ -862,7 +882,82 @@ def print0(s, console=False):
                 print(s)
             print(s, file=f)
 
-print0(code)
+import json
+
+class MetricsLogger:
+    def __init__(self, path: str | None, num_layers: int, master: bool):
+        self.path = path
+        self.master = master
+        self.num_layers = num_layers
+        self.enabled = False
+        self.mlp_rms = [None] * num_layers
+        self.attn_rms = [None] * num_layers
+        self._pending_grad_norms = [None] * num_layers
+
+    def mlp_hook(self, module, inputs, output):
+        if not self.enabled:
+            return
+        rms = output.detach().float().pow(2).mean().sqrt()
+        self.mlp_rms[module.layer_idx] = rms
+
+    def attn_hook(self, module, inputs, output):
+        if not self.enabled:
+            return
+        rms = output.detach().float().pow(2).mean().sqrt()
+        self.attn_rms[module.layer_idx] = rms
+
+    def attach(self, model):
+        for blk in model.blocks:
+            blk.mlp.register_forward_hook(self.mlp_hook)
+            if blk.attn is not None:
+                blk.attn.register_forward_hook(self.attn_hook)
+
+    def stash_grad_norms(self, model):
+        # all-rank participation: clone each grad, all_reduce(AVG), then per-layer L2.
+        handles = []
+        per_layer_grads: list[list] = [[] for _ in range(self.num_layers)]
+        for i, blk in enumerate(model.blocks):
+            for p in blk.parameters():
+                if p.grad is None:
+                    continue
+                g = p.grad.detach().clone()
+                handles.append(dist.all_reduce(g, op=dist.ReduceOp.AVG, async_op=True))
+                per_layer_grads[i].append(g)
+        for h in handles:
+            h.wait()
+        out = [None] * self.num_layers
+        for i, gs in enumerate(per_layer_grads):
+            if not gs:
+                continue
+            sq = None
+            for g in gs:
+                s = g.float().pow(2).sum()
+                sq = s if sq is None else sq + s
+            out[i] = sq.sqrt()
+        self._pending_grad_norms = out
+
+    def emit(self, step: int, train_time_ms: float):
+        if not self.master or self.path is None:
+            return
+
+        def to_list(xs):
+            return [None if x is None else float(x.item()) for x in xs]
+
+        record = dict(
+            step=step,
+            train_time_ms=train_time_ms,
+            mlp_rms=to_list(self.mlp_rms),
+            attn_rms=to_list(self.attn_rms),
+            grad_norm=to_list(self._pending_grad_norms),
+        )
+        with open(self.path, "a") as f:
+            f.write(json.dumps(record) + "\n")
+        self.mlp_rms = [None] * self.num_layers
+        self.attn_rms = [None] * self.num_layers
+        self._pending_grad_norms = [None] * self.num_layers
+
+metrics_logger = None
+
 print0("="*100)
 print0(f"Running Python {sys.version}")
 print0(f"Running PyTorch {torch.version.__version__}")
@@ -886,6 +981,11 @@ for m in model.modules():
         m.bfloat16()
 for param in model.parameters():
     dist.broadcast(param.detach(), 0)
+
+CausalSelfAttention._sample_max_T = args.metrics_attn_score_tokens
+metrics_logger = MetricsLogger(metrics_file, num_layers=model.num_layers, master=master_process)
+if master_process:
+    metrics_logger.attach(model)
 
 hidden_matrix_params = [p for n, p in model.blocks.named_parameters() if p.ndim >= 2 and "embed" not in n and "gate" not in n]
 embed_params = [p for n, p in model.named_parameters() if "embed" in n]
@@ -1084,23 +1184,39 @@ for step in range(train_steps + 1):
     if last_step:
         if master_process and args.save_checkpoint:
             log = dict(step=step, code=code, model=model.state_dict(), optimizers=[opt.state_dict() for opt in optimizers])
-            os.makedirs(f"logs/{run_id}", exist_ok=True)
-            torch.save(log, f"logs/{run_id}/state_step{step:06d}.pt")
+            torch.save(log, f"{run_dir}/state_step{step:06d}.pt")
         break
 
     new_step_batch_size = get_bs(step)
     send_args = (new_step_batch_size, args.train_max_seq_len, grad_accum_steps) if new_step_batch_size != step_batch_size else None
     step_batch_size = new_step_batch_size
+    sample_metrics = args.metrics_every > 0 and (step % args.metrics_every == 0)
+    metrics_logger.enabled = sample_metrics and master_process
     for idx in range(grad_accum_steps):
         if idx == grad_accum_steps - 1 and step % 2 == 1:
             optimizers[0].should_sync = True
         inputs, targets, cum_seqlens = train_loader.send(send_args)
         (model(inputs, targets, cum_seqlens, ws_short, ws_long) / grad_accum_steps).backward()
+    metrics_logger.enabled = False
+    if sample_metrics:
+        metrics_logger.stash_grad_norms(model)
     step_optimizers(step, optimizers, model)
+    if sample_metrics and master_process:
+        metrics_logger.emit(step + 1, training_time_ms + 1000 * (time.perf_counter() - t0))
 
     approx_training_time_ms = training_time_ms + 1000 * (time.perf_counter() - t0)
     print0(f"step:{step+1}/{train_steps} train_time:{approx_training_time_ms:.0f}ms step_avg:{approx_training_time_ms/(step + 1):.2f}ms", console=True)
 
 print0(f"peak memory allocated: {torch.npu.max_memory_allocated() // 1024 // 1024} MiB "
        f"reserved: {torch.npu.max_memory_reserved() // 1024 // 1024} MiB", console=True)
+print0(f"total training time: {training_time_ms/1000:.2f}s ({training_time_ms:.0f}ms)", console=True)
 dist.destroy_process_group()
+
+if master_process and run_dir is not None:
+    import subprocess
+    analyzer = os.path.join(os.path.dirname(os.path.abspath(__file__)), "analyze_metrics.py")
+    if os.path.exists(analyzer):
+        try:
+            subprocess.run([sys.executable, analyzer, run_dir], check=True)
+        except subprocess.CalledProcessError as e:
+            print(f"analyze_metrics.py failed: {e}")
