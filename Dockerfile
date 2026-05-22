@@ -1,33 +1,14 @@
-FROM nvidia/cuda:12.6.2-cudnn-devel-ubuntu24.04
+# Runtime image used for this Ascend NPU port.
+#
+# This Dockerfile records the container image and Python environment used during
+# validation. It is not the original CUDA/H100 Dockerfile from upstream.
 
-ENV DEBIAN_FRONTEND=noninteractive
-ENV PYTHON_VERSION=3.12.7
-ENV PATH=/usr/local/bin:$PATH
+FROM docker.cnb.cool/nilpotenter/docker/codeserver-mindspeed:v1.0.5
 
-RUN apt update && apt install -y --no-install-recommends build-essential libssl-dev zlib1g-dev \
-    libbz2-dev libreadline-dev libsqlite3-dev curl git libncursesw5-dev xz-utils tk-dev libxml2-dev \
-    libxmlsec1-dev libffi-dev liblzma-dev \
-    && apt clean && rm -rf /var/lib/apt/lists/*
+ENV CONDA_PREFIX=/root/miniconda3/envs/llm_test
+ENV PATH="${CONDA_PREFIX}/bin:${PATH}"
 
-RUN curl -O https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tgz && \
-    tar -xzf Python-${PYTHON_VERSION}.tgz && \
-    cd Python-${PYTHON_VERSION} && \
-    ./configure --enable-optimizations && \
-    make -j$(nproc) && \
-    make altinstall && \
-    cd .. && \
-    rm -rf Python-${PYTHON_VERSION} Python-${PYTHON_VERSION}.tgz
-
-RUN ln -s /usr/local/bin/python3.12 /usr/local/bin/python && \
-    ln -s /usr/local/bin/pip3.12 /usr/local/bin/pip
-
-COPY requirements.txt /modded-nanogpt/requirements.txt
-WORKDIR /modded-nanogpt
-
-RUN python -m pip install --upgrade pip && \
-    pip install -r requirements.txt
-
-RUN pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu126 --upgrade
+WORKDIR /workspace/modded-nanogpt-record50-cautious-wd
 
 CMD ["bash"]
 ENTRYPOINT []

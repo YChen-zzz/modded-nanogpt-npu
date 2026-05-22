@@ -1,5 +1,36 @@
 # Modded-NanoGPT
 
+## Ascend NPU Environment
+
+This checkout is the Record 50 cautious-weight-decay NPU port. The environment
+used for validation is recorded here for reproducibility.
+
+Docker image:
+
+```text
+docker.cnb.cool/nilpotenter/docker/codeserver-mindspeed:v1.0.5
+```
+
+Python environment inside the image:
+
+```text
+python executable: /root/miniconda3/envs/llm_test/bin/python
+Python:            3.10.19
+CONDA_PREFIX:      /root/miniconda3/envs/llm_test
+torch:             2.7.1+cpu
+torch_npu:         2.7.1.post2
+CANN:              /usr/local/Ascend/cann-8.5.0
+```
+
+`run.sh` launches:
+
+```bash
+torchrun --standalone --nproc_per_node=16 train_gpt.py
+```
+
+The checked-in `Dockerfile` pins the image above. It is not the original
+CUDA/H100 Dockerfile from upstream.
+
 This repository hosts the *NanoGPT speedrun*, in which we (collaboratively|competitively) search for the fastest algorithm to use 8 NVIDIA H100 GPUs to train a language model that attains 3.28 cross-entropy loss on the [FineWeb](https://huggingface.co/datasets/HuggingFaceFW/fineweb) validation set.
 
 The target (3.28 validation loss on FineWeb) follows Andrej Karpathy's [GPT-2 replication in llm.c, which attains that loss after running for 45 minutes](https://github.com/karpathy/llm.c/discussions/481#:~:text=By%20the%20end%20of%20the%20optimization%20we%27ll%20get%20to%20about%203.29).
@@ -348,4 +379,3 @@ compared to Shampoo.
 ```
 
 <img src="img/dofa.jpg" alt="itsover_wereback" style="width:100%;">
-

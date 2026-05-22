@@ -1,6 +1,14 @@
-# NPU (Ascend) environment for modded-nanogpt benchmark
-torch==2.10.0
-torch_npu==2.10.0
+# Python environment used for the Ascend NPU validation:
+#
+#   image:             docker.cnb.cool/nilpotenter/docker/codeserver-mindspeed:v1.0.5
+#   python executable: /root/miniconda3/envs/llm_test/bin/python
+#   Python:            3.10.19
+#   torch:             2.7.1+cpu
+#   torch_npu:         2.7.1.post2
+#   CANN:              /usr/local/Ascend/cann-8.5.0
+#
+# Project-level Python dependencies:
+
 numpy
 tiktoken
 datasets
