@@ -982,7 +982,6 @@ for m in model.modules():
 for param in model.parameters():
     dist.broadcast(param.detach(), 0)
 
-CausalSelfAttention._sample_max_T = args.metrics_attn_score_tokens
 metrics_logger = MetricsLogger(metrics_file, num_layers=model.num_layers, master=master_process)
 if master_process:
     metrics_logger.attach(model)
