@@ -4,26 +4,28 @@
 >
 > Forked from upstream [KellerJordan/modded-nanogpt](https://github.com/KellerJordan/modded-nanogpt) — the original project is the NanoGPT speedrun leaderboard on **8×NVIDIA H100 GPUs** (a collaborative/competitive search for the fastest algorithm that reaches 3.28 cross-entropy loss on the FineWeb validation set).
 >
-> In this fork, the same algorithms and training tricks from the upstream leaderboard are ported to run on **16×Ascend 910C NPUs** (`--nproc_per_node=16` in `run.sh`). The goal is to validate, reproduce, and benchmark those tricks **on NPUs rather than GPUs**. All algorithmic ideas, world records, contributor credit, and paper citations belong to the upstream project and are preserved in full below.
+> In this fork, the same algorithms and training tricks from the upstream leaderboard are ported to run on **16×Ascend 910C NPUs** (`--nproc_per_node=16` in `run.sh`). The goal is to validate, reproduce, and benchmark those tricks **on NPUs rather than GPUs**. All algorithmic ideas, world records, contributor credit, and paper citations belong to the upstream open-source project and are preserved in full below.
 >
 > - The current port corresponds to upstream **Record 50 (Cautious Weight Decay on Adam)**.
 > - For the operator-level porting changes (FA3 → `npu_fusion_attention`, Triton kernels → pure PyTorch, FP8 → bf16, `torch.compile` removed, etc.) and a step-by-step NPU vs GPU val-loss comparison, see [`NPU_CHANGES.md`](NPU_CHANGES.md).
-> - The actual runtime environment and launch command for this fork are defined by the *Ascend NPU Environment* section below and by `run.sh`. Anything in the preserved upstream README that mentions CUDA / NCCL / H100 / `--gpus all` / Triton / FP8 / `torch.compile` is kept for history and attribution only and does **not** describe the behavior of this repo.
+> - The runtime and launch command for this fork are defined by the *Runtime* section below and by `run.sh`. Anything in the preserved upstream README that mentions CUDA / NCCL / H100 / `--gpus all` / Triton / FP8 / `torch.compile` is kept for history and attribution only and does **not** describe the behavior of this repo.
+> - The contributor list in the preserved upstream README refers to the public NanoGPT speedrun community.
 
 ---
 
-## Ascend NPU Environment
+## Runtime
 
-This checkout is the Record 50 cautious-weight-decay NPU port. The environment
-used for validation is recorded here for reproducibility.
+This checkout is the Record 50 cautious-weight-decay NPU port. For
+reproducibility, this repository records the Dockerfile base image and Python
+environment used for the run.
 
-Docker image:
+Dockerfile base image:
 
-```text
-docker.cnb.cool/nilpotenter/docker/codeserver-mindspeed:v1.0.5
+```dockerfile
+FROM docker.cnb.cool/nilpotenter/docker/codeserver-mindspeed:v1.0.5
 ```
 
-Python environment inside the image:
+Python environment selected in that image:
 
 ```text
 python executable: /root/miniconda3/envs/llm_test/bin/python
@@ -31,7 +33,6 @@ Python:            3.10.19
 CONDA_PREFIX:      /root/miniconda3/envs/llm_test
 torch:             2.7.1+cpu
 torch_npu:         2.7.1.post2
-CANN:              /usr/local/Ascend/cann-8.5.0
 ```
 
 `run.sh` launches:
@@ -48,14 +49,48 @@ NPU benchmark results (Record 50; see `NPU_CHANGES.md` for details):
 | step_avg | 60.76 ms | 276.29 ms |
 | total training time | 2.1 min | 9.6 min |
 
-The checked-in `Dockerfile` pins the image above. It is not the original
-CUDA/H100 Dockerfile from upstream.
+The checked-in `Dockerfile` pins the base image above and selects this Conda
+environment. It is not the original CUDA/H100 Dockerfile from upstream.
+
+## NPU leaderboard
+
+The following table is the reviewed NPU reproduction leaderboard for accepted
+GPU records ported to 16×Ascend 910C. Times are sorted from longest to shortest
+and are averaged over successful seed `train.log` files. Only `train.log` is
+used as timing evidence;  For each row, the NPU source lives in
+`records/track_1_short_npu/<record>/source/` and successful run logs live in
+`records/track_1_short_npu/<record>/logs/`.
+
+| # | Record time | GPU record | Description | Log |
+| - | - | - | - | - |
+1 | 104.72 minutes | 1 | llm.c baseline; baseline/reference port, no specific speed-up trick. | [log](records/track_1_short_npu/record_001_llmc_baseline/logs/seed_007.train.log)
+2 | 61.60 minutes | 2 | Tuned learning rate and rotary embeddings. | [log](records/track_1_short_npu/record_002_adamw_rotary_lr/logs/seed_000.train.log)
+3 | 42.18 minutes | 5 | Pad embeddings, ReLU2, zero-init projections, QK-norm. | [log](records/track_1_short_npu/record_005_modern_arch/logs/seed_000.train.log)
+4 | 40.43 minutes | 4 | Muon optimizer improvements. | [log](records/track_1_short_npu/record_004_muon_improvements/logs/seed_000.train.log)
+5 | 40.33 minutes | 6 | Distributed Muon overhead. | [log](records/track_1_short_npu/record_006_distributed_muon/logs/seed_000.train.log)
+6 | 40.12 minutes | 7 | PyTorch 2.5 runtime upgrade. | [log](records/track_1_short_npu/record_007_pytorch25/logs/seed_018.train.log)
+7 | 36.60 minutes | 8 | Untied token embedding and LM head. | [log](records/track_1_short_npu/record_008_untie_embed/logs/seed_000.train.log)
+8 | 33.96 minutes | 10 | Cast activations to bfloat16. | [log](records/track_1_short_npu/record_010_cast_bf16/logs/seed_000.train.log)
+9 | 31.83 minutes | 9 | Value/embedding skip connections, momentum warmup, logit softcap. | [log](records/track_1_short_npu/record_009_shortcuts_tweaks/logs/seed_000.train.log)
+10 | 29.56 minutes | 21 | Reduced batch size. | [log](records/track_1_short_npu/record_021_batch_size/logs/seed_006.train.log)
+11 | 19.72 minutes | 17 | Sparsified value embeddings, improved rotary embeddings, dropped one attention layer. | [log](records/track_1_short_npu/record_017_sparsify_embeds/logs/seed_003.train.log)
+12 | 11.65 minutes | 30 | Dropped the first MLP layer. | [log](records/track_1_short_npu/record_030_skip_mlp_blocks/logs/seed_003.train.log)
+13 | 11.05 minutes | 34 | Smeared token embeddings one position forward. | [log](records/track_1_short_npu/record_034_smear/logs/seed_006.train.log)
+14 | 10.92 minutes | 33 | Asynchronous data fetch/indexing and final-layer validation attention window extension. | [log](records/track_1_short_npu/record_033_async_data_attn_final_window/logs/seed_100.train.log)
+15 | 10.77 minutes | 35 | Dropped first attention layer, extended long validation windows, updated schedule. | [log](records/track_1_short_npu/record_035_drop_attn/logs/seed_000.train.log)
+16 | 10.76 minutes | 38 | Polar Express replacement for Newton-Schulz. | [log](records/track_1_short_npu/record_038_polar_express/logs/seed_000.train.log)
+17 | 10.53 minutes | 39 | Updated Adam params every other step and reduced batch size. | [log](records/track_1_short_npu/record_039_custom_batching/logs/seed_000.train.log)
+18 | 10.16 minutes | 40 | Backout changes, hyperparameter tuning, lambda padding optimization. | [log](records/track_1_short_npu/record_040_backout/logs/seed_006.train.log)
+19 | 9.69 minutes | 41 | NorMuon optimizer. | [log](records/track_1_short_npu/record_041_normuon/logs/seed_006v5.train.log)
+20 | 9.38 minutes | 50 | Extended Cautious Weight Decay to Adam parameters. | [log](records/track_1_short_npu/record_050_cautious_wd_adam/logs/seed_006.train.log)
+21 | 9.34 minutes | 37 | Computed cross entropy in BF16 during training. | [log](records/track_1_short_npu/record_037_bf16_ce/logs/seed_000.train.log)
+22 | 9.04 minutes | 47 | Multiplied attention lambda with weight instead of data, fixed warmup. | [log](records/track_1_short_npu/record_047_sa_lambda_on_weights/logs/seed_005.train.log)
 
 ---
 
 ## Below is the original upstream README (preserved for full attribution)
 
-> Everything from this point on — the records table, the timing numbers, the Docker/CUDA commands, references to `8×H100`, Triton, FP8, `torch.compile`, etc. — describes the **upstream GPU project**. This fork does not attempt to reproduce those GPU wall-clock records on NPUs; the NPU reproduction results for these leaderboard tricks live in the section above and in `NPU_CHANGES.md`.
+> Everything from this point on — the records table, the timing numbers, the Docker/CUDA commands, references to `8×H100`, Triton, FP8, `torch.compile`, etc. — describes the **upstream GPU project**. This fork does not attempt to reproduce those GPU wall-clock records on NPUs; the NPU reproduction results for these leaderboard tricks live in the section above and in `NPU_CHANGES.md`. Contributor credits below refer to the upstream open-source speedrun.
 
 This repository hosts the *NanoGPT speedrun*, in which we (collaboratively|competitively) search for the fastest algorithm to use 8 NVIDIA H100 GPUs to train a language model that attains 3.28 cross-entropy loss on the [FineWeb](https://huggingface.co/datasets/HuggingFaceFW/fineweb) validation set.
 
