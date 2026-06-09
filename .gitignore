@@ -2,4 +2,7 @@ fineweb10B/
 pylog124M/
 __pycache__/
 logs/
+!records/track_1_short_npu/*/logs/
+!records/track_1_short_npu/*/logs/*.train.log
 .DS_Store
+npu_bench/
