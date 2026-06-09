@@ -1,25 +1,34 @@
-# Modded-NanoGPT · Ascend NPU Port
+# Modded-NanoGPT · Ascend NPU Leaderboard
 
-> **This repository is a port of modded-nanogpt to 16×Ascend 910C NPUs, used as an NPU benchmark.**
+> **This repository tracks NPU reproductions of the modded-nanogpt speedrun leaderboard on 16×Ascend 910C NPUs.**
 >
 > Forked from upstream [KellerJordan/modded-nanogpt](https://github.com/KellerJordan/modded-nanogpt) — the original project is the NanoGPT speedrun leaderboard on **8×NVIDIA H100 GPUs** (a collaborative/competitive search for the fastest algorithm that reaches 3.28 cross-entropy loss on the FineWeb validation set).
 >
-> In this fork, the same algorithms and training tricks from the upstream leaderboard are ported to run on **16×Ascend 910C NPUs** (`--nproc_per_node=16` in `run.sh`). The goal is to validate, reproduce, and benchmark those tricks **on NPUs rather than GPUs**. All algorithmic ideas, world records, contributor credit, and paper citations belong to the upstream open-source project and are preserved in full below.
+> In this fork, upstream GPU records are ported, reviewed, and benchmarked on **16×Ascend 910C NPUs**. The goal is to maintain a comparable NPU leaderboard with auditable source, launch commands, environment metadata, logs, metrics, and review decisions for each accepted reproduction. All algorithmic ideas, world records, contributor credit, and paper citations belong to the upstream open-source project and are preserved in full below.
 >
-> - The current port corresponds to upstream **Record 50 (Cautious Weight Decay on Adam)**.
-> - For the operator-level porting changes (FA3 → `npu_fusion_attention`, Triton kernels → pure PyTorch, FP8 → bf16, `torch.compile` removed, etc.) and a step-by-step NPU vs GPU val-loss comparison, see [`NPU_CHANGES.md`](NPU_CHANGES.md).
-> - The runtime and launch command for this fork are defined by the *Runtime* section below and by `run.sh`. Anything in the preserved upstream README that mentions CUDA / NCCL / H100 / `--gpus all` / Triton / FP8 / `torch.compile` is kept for history and attribution only and does **not** describe the behavior of this repo.
+> - The leaderboard table below is the main result of this repository.
+> - Per-record NPU sources and successful run logs live under `records/track_1_short_npu/`.
+> - The top-level `train_gpt.py` and `run.sh` are a local runnable snapshot. Anything in the preserved upstream README that mentions CUDA / NCCL / H100 / `--gpus all` / Triton / FP8 / `torch.compile` is kept for history and attribution only and does **not** describe the NPU leaderboard runs.
 > - The contributor list in the preserved upstream README refers to the public NanoGPT speedrun community.
 
 ---
 
 ## Runtime
 
-This checkout is the Record 50 cautious-weight-decay NPU port. For
-reproducibility, this repository records the Dockerfile base image and Python
-environment used for the run.
+The NPU leaderboard uses a common 16-NPU reference runtime:
 
-Dockerfile base image:
+| Field | Value |
+|---|---|
+| Image | `docker.cnb.cool/nilpotenter/docker/codeserver-mindspeed:v1.0.5` |
+| Python | `/root/miniconda3/envs/llm_test/bin/python`, version `3.10.19` |
+| Hardware | 16×Ascend 910C NPU |
+| Process count | 16 distributed training processes |
+
+Some logs may report a PyTorch version such as `2.7.1+cpu`; in the Ascend image
+the `+cpu` suffix is the package build string and does not mean the run used CPU
+instead of NPU.
+
+Local Dockerfile base image:
 
 ```dockerfile
 FROM docker.cnb.cool/nilpotenter/docker/codeserver-mindspeed:v1.0.5
@@ -41,16 +50,9 @@ torch_npu:         2.7.1.post2
 torchrun --standalone --nproc_per_node=16 train_gpt.py
 ```
 
-NPU benchmark results (Record 50; see `NPU_CHANGES.md` for details):
-
-| Metric | Upstream GPU (8×H100) | This repo, NPU (16×910C) |
-|---|---|---|
-| final val_loss | 3.2754 | **3.2656** |
-| step_avg | 60.76 ms | 276.29 ms |
-| total training time | 2.1 min | 9.6 min |
-
 The checked-in `Dockerfile` pins the base image above and selects this Conda
-environment. It is not the original CUDA/H100 Dockerfile from upstream.
+environment for local use. It is not the original CUDA/H100 Dockerfile from
+upstream.
 
 ## NPU leaderboard
 
@@ -97,7 +99,7 @@ used as timing evidence;  For each row, the NPU source lives in
 
 ## Below is the original upstream README (preserved for full attribution)
 
-> Everything from this point on — the records table, the timing numbers, the Docker/CUDA commands, references to `8×H100`, Triton, FP8, `torch.compile`, etc. — describes the **upstream GPU project**. This fork does not attempt to reproduce those GPU wall-clock records on NPUs; the NPU reproduction results for these leaderboard tricks live in the section above and in `NPU_CHANGES.md`. Contributor credits below refer to the upstream open-source speedrun.
+> Everything from this point on — the records table, the timing numbers, the Docker/CUDA commands, references to `8×H100`, Triton, FP8, `torch.compile`, etc. — describes the **upstream GPU project**. This fork does not attempt to reproduce those GPU wall-clock records on NPUs; the NPU reproduction results live in the leaderboard above. Contributor credits below refer to the upstream open-source speedrun.
 
 This repository hosts the *NanoGPT speedrun*, in which we (collaboratively|competitively) search for the fastest algorithm to use 8 NVIDIA H100 GPUs to train a language model that attains 3.28 cross-entropy loss on the [FineWeb](https://huggingface.co/datasets/HuggingFaceFW/fineweb) validation set.
 
