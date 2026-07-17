@@ -58,8 +58,8 @@ upstream.
 
 The following table is the reviewed NPU reproduction leaderboard for accepted
 GPU records ported to 16×Ascend 910C. Times are sorted from longest to shortest
-and are averaged over successful seed `train.log` files. Only `train.log` is
-used as timing evidence;  For each row, the NPU source lives in
+and taken from successful `.train.log` files; rows with multiple successful seeds
+report their average. For each row, the NPU source lives in
 `records/track_1_short_npu/<record>/source/` and successful run logs live in
 `records/track_1_short_npu/<record>/logs/`.
 
@@ -94,6 +94,7 @@ used as timing evidence;  For each row, the NPU source lives in
 27 | 9.38 minutes | 50 | Extended Cautious Weight Decay to Adam parameters. | [log](records/track_1_short_npu/record_050_cautious_wd_adam/logs/seed_006.train.log)
 28 | 9.34 minutes | 37 | Computed cross entropy in BF16 during training. | [log](records/track_1_short_npu/record_037_bf16_ce/logs/seed_000.train.log)
 29 | 9.04 minutes | 47 | Multiplied attention lambda with weight instead of data, fixed warmup. | [log](records/track_1_short_npu/record_047_sa_lambda_on_weights/logs/seed_005.train.log)
+30 | 5.78 minutes | 50 | NPU-optimized Cautious Weight Decay on Adam: fused RMSNorm/rotary, buffer reuse, bfloat16 weights, a 2070-step schedule, and reduced validation/metrics overhead. | [log](records/track_1_short_npu/record_050_cautious_wd_adam_npu_optimized/logs/job_da24114e070a439e.train.log)
 
 ---
 
